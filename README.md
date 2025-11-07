@@ -1,8 +1,8 @@
 # Dynamic Line Rating (DLR) – Alpine Demo (React)
 
-Interaktive Web-Demo zur Berechnung des **Dynamic Line Ratings (DLR)** für den Alpenraum. Das Tool zeigt, wie **Temperatur**, **Wind (inkl. Böen)**, **Globalstrahlung**, **Leiterstrom** und das gewählte **Wärmebilanz-Modell (IEEE-like / CIGRÉ-like)** die **Leitertemperatur**, **Ampacity**, **DLR %**, **Durchhang (Sag)** und **Schnee/Vereisungsrisiken** beeinflussen.
+Interaktive Web-Demo zur Berechnung des **Dynamic Line Ratings (DLR)** für den Alpenraum. Das Tool zeigt, wie **Temperatur**, **Wind (inkl. Böen)**, **Globalstrahlung**, **Leiterstrom** und das gewählte **Wärmebilanz-Modell (IEEE-like / CIGRÉ-like)** die **Leitertemperatur**, **Ampacity**, **DLR %**, **Durchhang (Sag)** und **Schnee/Vereisungsrisiken** beeinflussen.
 
-> ❗ Hinweis: Dieses Tool ist **didaktisch**. Es ersetzt keine konforme Auslegung nach IEEE 738 oder CIGRÉ TB 601.
+> ❗ Hinweis: Dieses Tool ist **didaktisch**. Es ersetzt keine konforme Auslegung nach IEEE 738 oder CIGRÉ TB 601.
 
 ---
 
@@ -25,9 +25,9 @@ Interaktive Web-Demo zur Berechnung des **Dynamic Line Ratings (DLR)** für den 
 
 ✅ **Modellschalter:** *IEEE-like* ↔ *CIGRÉ-like*
 ✅ **Leiterstrom** als direkter Input
-✅ **Alpen-range** der Atmosphärenparameter (−20… +45 °C, Wind 0–12 m/s, Böen 0–25 m/s, GHI 0–1200 W/m²)
+✅ **Alpen-range** der Atmosphärenparameter (−20… +45 °C, Wind 0–12 m/s, Böen 0–25 m/s, GHI 0–1200 W/m²)
 ✅ **Wärmebilanz**: Joule, solare Einstrahlung, Konvektion, Strahlung
-✅ **Ampacity-Berechnung (Tcₘₐₓ=80 °C)**
+✅ **Ampacity-Berechnung (Tcₘₐₓ=80 °C)**
 ✅ **DLR %** relativ zum konservativen statischen Referenzfall
 ✅ **Effektive Windgeschwindigkeit (inkl. Böen)**
 ✅ **Sag-Visualisierung** basierend auf Tc
@@ -50,7 +50,7 @@ h_c(v) = 5 + 8 * sqrt(v + 0.1)
 * didaktisch gut nachvollziehbar
 * leichte Überschätzung der Kühlung bei starkem Wind möglich
 
-### CIGRÉ-like Modell (inspiriert durch TB 601)
+### CIGRÉ-like Modell (inspiriert durch TB 601)
 
 Zerlegung in **natürliche** und **erzwungene Konvektion**:
 
@@ -74,8 +74,8 @@ Die App kann durch leiterspezifische Parameter erweitert werden. Diese Werte lie
 
 | Parameter     | Bedeutung                      | Typischer Bereich |
 | ------------- | ------------------------------ | ----------------- |
-| `DIAM`        | Leiterdurchmesser              | 18–34 mm          |
-| `R20_PER_M`   | Widerstand @20°C               | 2.2e-5–4.0e-5 Ω/m |
+| `DIAM`        | Leiterdurchmesser              | 18–34 mm          |
+| `R20_PER_M`   | Widerstand @20°C               | 2.2e-5–4.0e-5 Ω/m |
 | `ALPHA_R`     | Temperaturkoeff. Widerstand    | 0.0038–0.0040     |
 | `EPS`         | Emissivität                    | 0.5–0.9           |
 | `ALPHA_SOLAR` | Absorptivität Solar            | 0.3–0.6           |
@@ -137,14 +137,105 @@ Optionen:
 
 Die zentralen Parameter stehen in `DynamicLineRating.tsx` im oberen Block:
 
-* Tc_max = 80 °C (konfigurierbar)
-* statischer Referenzfall: **35 °C**, **0.6 m/s**, **800 W/m²**
-* Alpenbereich: −20…+45°C, Wind 0–12 m/s, Böen 0–25 m/s, Strahlung 0–1200 W/m²
+* Tc_max = 80 °C (konfigurierbar)
+* statischer Referenzfall: **35 °C**, **0.6 m/s**, **800 W/m²**
+* Alpenbereich: −20…+45°C, Wind 0–12 m/s, Böen 0–25 m/s, Strahlung 0–1200 W/m²
 * Joule, Konvektion, Strahlung und Solarheating vollständig implementiert
 
 ---
 
 ## Methodik
+
+### 👉 Technische Gegenüberstellung: IEEE vs. CIGRÉ (DLR-Modelle)
+
+#### 1) Grundidee der beiden Modelle
+
+##### **IEEE 738**
+
+* basiert auf experimentell kalibrierten Wärmeübergangskoeffizienten
+* Konvektion als vereinfachte empirische Funktion
+* Ziel: robuste, konservative, operationstaugliche Formel für Netzbetreiber
+* Formel (vereinfacht):
+
+  ```text
+  h_c = A + B * sqrt(v + v0)
+  ```
+* Ergebnis: realistisch, aber gedämpfter Wind-Effekt
+
+##### **CIGRÉ TB 601**
+
+* physikalische Zerlegung der Konvektion in:
+
+  * **natürliche Konvektion** (Auftrieb)
+  * **erzwungene Konvektion** (Wind)
+* mathematisch getrennt modelliert:
+
+  ```text
+  q_nat = Cn * (ΔT)^1.25 * D^0.75
+  q_for = Cf * v^m * (ΔT)^n * D^0.75
+  ```
+* Ergebnis: realistischere Windabhängigkeit, besonders im Alpenraum
+
+##### 👉 Kurzfassung
+
+**IEEE = empirisch robust · CIGRÉ = physikalisch granular**
+
+#### 2) Physikalische Unterschiede
+
+✅ **Natürliche Konvektion**
+
+* IEEE implizit
+* CIGRÉ explizit nicht-linear
+  → wichtig bei schwachem Wind / Inversionslagen
+
+✅ **Erzwungene Konvektion**
+
+* IEEE: √v
+* CIGRÉ: v^m → stärkerer Windgradient
+  → relevant bei Föhn/Starkwind
+
+✅ **Windrichtung**
+
+* CIGRÉ: ermöglicht Anströmwinkel
+* IEEE: richtungsunabhängig
+
+✅ **Leitergeometrie**
+
+* CIGRÉ: (D^{0.75})
+* IEEE: pauschal
+
+#### 3) Praktische Folgen für Ampacity (I_max)
+
+**Wenig Wind (0–1 m/s)**
+✅ CIGRÉ liefert *5–15 % höhere Ampacity*
+
+**Moderater Wind (2–5 m/s)**
+✅ geringe Unterschiede (0–5 %)
+
+**Starker Wind (5–15 m/s)**
+✅ CIGRÉ bis zu +25 % Ampacity
+→ wichtig in alpinen Tälern
+
+**Hohe Strahlung (800–1000 W/m²)**
+✅ CIGRÉ temperaturdifferenzsensitiver (bis +10 %)
+
+#### 4) Typische Einsatzfälle
+
+**IEEE – geeignet wenn:**
+
+* konservativ, stabil, robust
+* wenige atmosphärische Eingangsdaten
+* US/IEC-Betriebsregeln maßgeblich
+
+**CIGRÉ – geeignet wenn:**
+
+* alpine Orographie (Täler, Düsen)
+* hohe Windsensitivität
+* unterschiedliche Leitertypen
+* Echtzeit-DLR / Optimierung
+* Integration von AI-Wettermodellen (AIFS, AROME, etc.)
+
+## Methodik (fortgesetzt)
 
 ### Wärmebilanz (stationär)
 
@@ -219,9 +310,9 @@ Keine mechanische Catenary-Lösung – rein didaktisch.
 
 ### Schnee- & Vereisungsindikatoren (Heuristik)
 
-* Vereisung hoch: −10…+1 °C, niedrige Strahlung, schwacher Wind
-* Vereisung moderat: −15…+2 °C
-* Nassschnee möglich: −5…+2 °C
+* Vereisung hoch: −10…+1 °C, niedrige Strahlung, schwacher Wind
+* Vereisung moderat: −15…+2 °C
+* Nassschnee möglich: −5…+2 °C
 
 ---
 
@@ -237,7 +328,7 @@ Keine mechanische Catenary-Lösung – rein didaktisch.
 
 ## Validierungsideen
 
-* Vergleich gegen IEEE 738-Beispiele
+* Vergleich gegen IEEE 738-Beispiele
 * Gegenüberstellung mit SCADA-Daten (Tc, I, Wind)
 * Sensitivität: ∂I_max/∂v, ∂I_max/∂Ta, ∂I_max/∂GHI
 * Nutzung von INCA, AROME, AIFS für Szenariobewertung
