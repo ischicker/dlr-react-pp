@@ -1,203 +1,253 @@
-# DLR React → GitHub Pages → PowerPoint
-
-
-Interaktive DLR-Demo (React + Vite + Tailwind + lucide-react) mit Auto-Deploy auf **GitHub Pages**. Perfekt, um die Seite in PowerPoint über ein Web-Viewer Add-In einzubetten.
-
 # Dynamic Line Rating (DLR) – Alpine Demo (React)
 
-Interaktive DLR-Demo für den Alpenraum: Visualisiert, wie **Lufttemperatur**, **Wind (inkl. Böen)** und **Globalstrahlung (GHI)** die **Ampacity**, die **Leitertemperatur** und den **Durchhang (Sag)** beeinflussen. Enthält heuristische **Schnee-/Vereisungsindikatoren** und eine **wärmebilanzbasierte** Näherung nahe IEEE 738.
+Interaktive Web-Demo zur Berechnung des **Dynamic Line Ratings (DLR)** für den Alpenraum. Das Tool zeigt, wie **Temperatur**, **Wind (inkl. Böen)**, **Globalstrahlung**, **Leiterstrom** und das gewählte **Wärmebilanz-Modell (IEEE-like / CIGRÉ-like)** die **Leitertemperatur**, **Ampacity**, **DLR %**, **Durchhang (Sag)** und **Schnee/Vereisungsrisiken** beeinflussen.
 
-> ⚠️ **Hinweis:** Diese App ist **didaktisch**. Sie ersetzt **keine** leiterspezifische Planung/Operation, keine Freigaben und keine Netzbetriebsrichtlinien.
+> ❗ Hinweis: Dieses Tool ist **didaktisch**. Es ersetzt keine konforme Auslegung nach IEEE 738 oder CIGRÉ TB 601.
 
 ---
 
 ## Inhalt
 
 * [Features](#features)
+* [Modellwahl: IEEE ⇄ CIGRÉ](#modellwahl-ieee--cigré)
+* [Advanced Parameters](#advanced-parameters)
 * [Technologie-Stack](#technologie-stack)
 * [Quickstart](#quickstart)
-
-  * [A. GitHub Pages (100% im Web, empfohlen)](#a-github-pages-100-im-web-empfohlen)
-  * [B. Lokal entwickeln](#b-lokal-entwickeln)
-  * [C. In PowerPoint einbetten](#c-in-powerpoint-einbetten)
 * [Konfiguration & Parametrisierung](#konfiguration--parametrisierung)
 * [Methodik](#methodik)
-
-  * [1) Wärmebilanz & Leitertemperatur](#1-wärmebilanz--leitertemperatur)
-  * [2) Ampacity (I_max) & DLR %](#2-ampacity-i_max--dlr-)
-  * [3) Durchhang (Sag) – heuristische Visualisierung](#3-durchhang-sag--heuristische-visualisierung)
-  * [4) Effektive Windgeschwindigkeit (Böen)](#4-effektive-windgeschwindigkeit-böen)
-  * [5) Schnee/Vereisung – Heuristik](#5-schneevereisung--heuristik)
 * [Grenzen & Annahmen](#grenzen--annahmen)
 * [Validierungsideen](#validierungsideen)
-* [Referenzen & weiterführende Literatur](#referenzen--weiterführende-literatur)
+* [Referenzen](#referenzen)
 
 ---
 
 ## Features
 
-* **Alpen-range** der Eingangsgrößen: Temperatur **−20…+45 °C**, GHI **0…1200 W/m²**, Windmittel **0…12 m/s**, Böen **0…25 m/s**
-* **Leiterstrom** als Steuergröße → **wärmebilanzbasierte** Leitertemperatur
-* **Ampacity (I_max)** = maximaler Strom für **Tc_max = 80 °C** (per numerischer Suche)
-* **DLR %** relativ zum **statischen Referenzfall** (35 °C, 0.6 m/s, 800 W/m²)
-* **Schnee-/Vereisungsindikator** (logikbasiert)
-* **Sag**-Visualisierung abhängig von **Leitertemperatur** und **Wind**
-* **React + Vite + Tailwind**, buildbar als **Single-File HTML** (robust für Hosting/PowerPoint)
+✅ **Modellschalter:** *IEEE-like* ↔ *CIGRÉ-like*
+✅ **Leiterstrom** als direkter Input
+✅ **Alpen-range** der Atmosphärenparameter (−20… +45 °C, Wind 0–12 m/s, Böen 0–25 m/s, GHI 0–1200 W/m²)
+✅ **Wärmebilanz**: Joule, solare Einstrahlung, Konvektion, Strahlung
+✅ **Ampacity-Berechnung (Tcₘₐₓ=80 °C)**
+✅ **DLR %** relativ zum konservativen statischen Referenzfall
+✅ **Effektive Windgeschwindigkeit (inkl. Böen)**
+✅ **Sag-Visualisierung** basierend auf Tc
+✅ **Schnee-/Vereisungsindikatoren**
+✅ **Single-File-Build** für GitHub Pages oder PowerPoint-Einbettung
+
+---
+
+## Modellwahl: IEEE ⇄ CIGRÉ
+
+### IEEE-like Modell
+
+Heuristische Konvektionsformel:
+
+```
+h_c(v) = 5 + 8 * sqrt(v + 0.1)
+```
+
+* sehr robust
+* didaktisch gut nachvollziehbar
+* leichte Überschätzung der Kühlung bei starkem Wind möglich
+
+### CIGRÉ-like Modell (inspiriert durch TB 601)
+
+Zerlegung in **natürliche** und **erzwungene Konvektion**:
+
+```
+q_nat = Cn * (ΔT)^1.25 * D^0.75
+q_for = Cf * v^m * (ΔT)^n * D^0.75
+q_conv = q_nat + q_for
+```
+
+* realistischere Windabhängigkeit
+* Exponenten m≈0.5, n≈1.25 typisch
+* Koeffizienten **didaktisch**, nicht standardkonform
+
+Der Nutzer kann live zwischen beiden Modellen umschalten.
+
+---
+
+## Advanced Parameters
+
+Die App kann durch leiterspezifische Parameter erweitert werden. Diese Werte liegen im Code (oder können als UI-Slider addiert werden):
+
+| Parameter     | Bedeutung                      | Typischer Bereich |
+| ------------- | ------------------------------ | ----------------- |
+| `DIAM`        | Leiterdurchmesser              | 18–34 mm          |
+| `R20_PER_M`   | Widerstand @20°C               | 2.2e-5–4.0e-5 Ω/m |
+| `ALPHA_R`     | Temperaturkoeff. Widerstand    | 0.0038–0.0040     |
+| `EPS`         | Emissivität                    | 0.5–0.9           |
+| `ALPHA_SOLAR` | Absorptivität Solar            | 0.3–0.6           |
+| `TC_MAX`      | maximal zul. Leiter-Temperatur | 70–120°C          |
+| `CIGRE_CN`    | natürliche Konvektion          | 2–5               |
+| `CIGRE_CF`    | erzwungene Konvektion          | 5–12              |
+| `CIGRE_M`     | Windexponent                   | 0.4–0.6           |
+| `CIGRE_N`     | ΔT-Exponent                    | 1.2–1.3           |
+
+Optional kann ein **Dropdown mit Leitertypen** (ACSR, AAAC, ACCC …) ergänzt werden.
 
 ---
 
 ## Technologie-Stack
 
-* **React 18** (Functional Components, Hooks)
-* **Vite 5** (schneller Dev-Server, Produktion-Build)
-* **Tailwind CSS 3** (stileskalierbar, utility-first)
-* **lucide-react** (Iconset)
-* **vite-plugin-singlefile** (optional; generiert eine inlined `index.html`)
+* **React 18**
+* **Vite 5** (mit Single-File-Bundling)
+* **Tailwind CSS**
+* **lucide-react** für Icons
 
 ---
 
 ## Quickstart
 
-### A. GitHub Pages (100% im Web, empfohlen)
-
-1. Repository erstellen (Public).
-2. Projektdateien hinzufügen (siehe Struktur: `package.json`, `vite.config.ts`, `src/*`, …).
-3. In `vite.config.ts` **base** auf `/<REPO_NAME>/` setzen.
-4. GitHub Actions Workflow `.github/workflows/deploy.yml` einchecken (Build & Pages-Deploy).
-5. `Settings → Pages → Source: GitHub Actions`.
-6. Nach erfolgreichem Workflow die **Pages-URL** nutzen, z. B. `https://<USER>.github.io/<REPO_NAME>/`.
-
-### B. Lokal entwickeln
+### 1) Lokal starten
 
 ```bash
 npm install
-npm run dev     # http://localhost:5173
-npm run build   # ./dist
+npm run dev
 ```
 
-Optional Single-File-Output (via Plugin bereits aktiv): Die `./dist/index.html` enthält inline Assets.
+➡ Öffnet [http://localhost:5173](http://localhost:5173)
 
-### C. In PowerPoint einbetten
+### 2) Build erstellen
 
-* **Interaktiv (empfohlen):** Pages-URL mit **Web Viewer/LiveWeb**-Add-In einfügen.
-* **Offline:** `dist/index.html` per **LiveWeb** lokal referenzieren oder Bildschirmvideo einbetten.
+```bash
+npm run build
+```
+
+Der Output liegt in `dist/` – `index.html` ist **inline**, ideal für PowerPoint.
+
+### 3) GitHub Pages Deployment
+
+* Repo → Settings → Pages → „GitHub Actions“
+* Workflow `.github/workflows/deploy.yml` vorhanden
+* Live unter `https://<user>.github.io/<repo>/`
+
+### 4) PowerPoint Integration
+
+Optionen:
+
+* **Live-Webseite einbinden** (Add-In „Web Viewer“ oder Office 365 Web Viewer)
+* **Offline:** `dist/index.html` lokal per „LiveWeb“ anzeigen lassen
+* Alternativ: Screencast/Animation einbinden
 
 ---
 
 ## Konfiguration & Parametrisierung
 
-Die Standardwerte/Parameter sind in `DynamicLineRating.tsx` oben definiert:
+Die zentralen Parameter stehen in `DynamicLineRating.tsx` im oberen Block:
 
-| Symbol         | Bedeutung                              | Default | Einheit |
-| -------------- | -------------------------------------- | ------: | ------- |
-| `TC_MAX`       | maximale Leitertemperatur              |      80 | °C      |
-| `T_STATIC_REF` | statische Referenz-Lufttemperatur      |      35 | °C      |
-| `V_REF`        | statische Referenz-Windgeschwindigkeit |     0.6 | m/s     |
-| `GHI_REF`      | statische Referenz-GHI                 |     800 | W/m²    |
-| `DIAM`         | Leiternenn-Durchmesser                 |   0.028 | m       |
-| `R20_PER_M`    | Widerstand @20 °C                      |  3.0e−5 | Ω/m     |
-| `ALPHA_R`      | Tempkoeff. Widerstand                  |  0.0039 | 1/K     |
-| `EPS`          | Emissivität                            |     0.8 | –       |
-| `ALPHA_SOLAR`  | Absorptivität                          |     0.5 | –       |
-
-> **Anpassbar:** Für spezifische Leiter (z. B. ACSR-Typen) können `DIAM`, `R20_PER_M`, `EPS`, `ALPHA_SOLAR` aus Datenblättern/Normen ersetzt werden.
+* Tc_max = 80 °C (konfigurierbar)
+* statischer Referenzfall: **35 °C**, **0.6 m/s**, **800 W/m²**
+* Alpenbereich: −20…+45°C, Wind 0–12 m/s, Böen 0–25 m/s, Strahlung 0–1200 W/m²
+* Joule, Konvektion, Strahlung und Solarheating vollständig implementiert
 
 ---
 
 ## Methodik
 
-### 1) Wärmebilanz & Leitertemperatur
+### Wärmebilanz (stationär)
 
-Wir lösen näherungsweise pro Meter Leiter die stationäre Wärmebilanz
+Für jeden Leitermeter lösen wir:
 
-[ q_\text{Joule}(I, T_c) + q_\text{Solar}(\text{GHI}) = q_\text{Conv}(v_\text{eff}, T_c-T_a) + q_\text{Rad}(T_c, T_a) ]
+```
+q_joule(I,Tc) + q_solar(GHI)  =  q_conv(v_eff, ΔT) + q_rad(Tc,Ta)
+```
 
-mit
+**Joule:**
 
-* **Joule-Verlust:** ( q_\text{Joule} = I^2,R(T_c) ), ( R(T) = R_{20},[1 + \alpha_R,(T-20)] )
-* **Solare Einstrahlung:** ( q_\text{Solar} = \alpha_\text{sol} \cdot \text{GHI} \cdot D ) (projizierte Fläche ≈ Durchmesser * 1 m)
-* **Konvektion:** ( q_\text{Conv} = h_c(v_\text{eff}) ,(T_c-T_a),\pi D ), mit heuristischem ( h_c(v) \approx 5 + 8\sqrt{v+0.1} ) W/m²K
-* **Strahlung:** ( q_\text{Rad} = \varepsilon,\sigma,(T_c^4 - T_a^4),\pi D )
+```
+q_joule = I² * R(Tc)
+R(Tc) = R20 * (1 + α_R (Tc − 20))
+```
 
-Numerische Lösung für **T_c** mittels gedämpfter Fixpunkt-/Newton-Schritte; Begrenzung auf ([T_a-5,; T_{c,\max}]) mit **T_{c,max}=80 °C**.
+**Solareinstrahlung:**
 
-### 2) Ampacity (I_max) & DLR %
+```
+q_solar = α_solar * GHI * D
+```
 
-* **Ampacity I_max:** größter Strom, so dass **T_c = 80 °C** (Numerik via Bisektion/Erhöhung von Obergrenzen).
-* **DLR %:** ( \text{DLR} = 100% \cdot I_\text{max}(T_a, v_\text{eff}, \text{GHI}) / I_\text{max}(35,°\text{C}, 0.6,\text{m/s}, 800,\text{W/m²}) )
+**Konvektion IEEE-like:**
 
-### 3) Durchhang (Sag) – heuristische Visualisierung
+```
+h = 5 + 8 * sqrt(v + 0.1)
+q_conv = h * (Tc − Ta) * πD
+```
 
-Sag steigt mit **Leitertemperatur** (thermische Ausdehnung) und wird vom **Wind** leicht optisch reduziert.
+**Konvektion CIGRÉ-like:**
 
-[ \text{Sag} \approx \text{Sag}*\text{ref},(1 + k,(T_c - T*\text{ref})) - c,v_\text{eff} ]
+```
+q_nat = Cn (ΔT)^1.25 D^0.75
+q_for = Cf v^m (ΔT)^n D^0.75
+q_conv = q_nat + q_for
+```
 
-Die Parameter ((k, c)) sind **visualisierende** Heuristiken, **keine** mechanische Catenary-Lösung.
+**Strahlung:**
 
-### 4) Effektive Windgeschwindigkeit (Böen)
+```
+q_rad = ε σ (Tc⁴ − Ta⁴) πD
+```
 
-Böen erhöhen den Wärmeübergang. Heuristik:
+Die Gleichung wird numerisch (gedämpfte Newton/Fixed-Point) gelöst.
 
-[ v_\text{eff} = v_\text{mean} + 0.35,(v_\text{gust} - v_\text{mean}) \quad (v_\text{gust} > v_\text{mean}) ]
+### Ampacity (I_max)
 
-### 5) Schnee/Vereisung – Heuristik
+Der maximal zulässige Strom ist jeniger, der **Tc = Tc_max** ergibt.
+Gelöst per adaptiver Bisektion.
 
-Regeln (ohne expliziten Niederschlag):
+### DLR %
 
-* Vereisung **hoch** bei: ( -10\le T_a\le 1~°C ), ( v\le 3~\text{m/s} ), niedrige Strahlung
-* Vereisung **moderat** bei: ( -15\le T_a\le 2~°C ), ( v\le 5~\text{m/s} ), sehr niedrige Strahlung
-* **Schnee (Nassschnee) möglich** bei: ( -5\le T_a\le 2~°C ), geringe Strahlung
+```
+DLR = I_max(aktuell) / I_max(referenz) * 100
+```
 
-Diese Indikatoren sind **vereinfachte** Signale für Betriebs-Hinweise.
+### Effektive Windgeschwindigkeit (inkl. Böen)
+
+```
+v_eff = v_mean + 0.35 * (v_gust − v_mean)
+```
+
+### Durchhang (Sag)
+
+Visuelles Modell:
+
+```
+sag = sag_ref * (1 + k (Tc − T_ref)) − c * v_eff
+```
+
+Keine mechanische Catenary-Lösung – rein didaktisch.
+
+### Schnee- & Vereisungsindikatoren (Heuristik)
+
+* Vereisung hoch: −10…+1 °C, niedrige Strahlung, schwacher Wind
+* Vereisung moderat: −15…+2 °C
+* Nassschnee möglich: −5…+2 °C
 
 ---
 
 ## Grenzen & Annahmen
 
-* **Leiterspezifika** (Durchmesser, Strangaufbau, Oberflächenbeschaffenheit) sind grob gesetzt → Ergebnisse **nicht** typgeprüft.
-* **Konvektion** stark vereinfacht; exakte Formeln hängen von **Anströmwinkel**, **Reynolds-/Nusseltzahl** und **Anlage** ab.
-* **Strahlung** nutzt GHI und pauschale optische Koeffizienten; kein Spektrum, keine Orientierung/Längsneigung.
-* **Mechanik** (Sag) ist eine **qualitative** Visualisierung, keine Catenary-Berechnung.
-* **Vereisung/Schnee**: nur Heuristik ohne Mikro-/Niederschlagsphysik.
+⚠ didaktisches Modell – nicht normkonform
+⚠ CIGRÉ-Parameter sind heuristisch
+⚠ Keine mechanische Sag-/Spanfeldberechnung
+⚠ Keine Niederschlagsphysik, nur heuristische Ablagerungsregeln
+⚠ Emissivität & Absorptivität: typische Defaultwerte
 
 ---
 
 ## Validierungsideen
 
-* Vergleich mit **IEEE 738**-Beispielrechnungen (Parameter adäquat setzen)
-* Gegenüberstellung von **Betriebsdaten** (Leitertemp./Strom/Wind) an Testabschnitten
-* Sensitivitätsanalysen: (\partial I_\text{max}/\partial v), (\partial I_\text{max}/\partial T_a), (\partial I_\text{max}/\partial \text{GHI})
-* Nutzung von **NWP/Nowcasting** (INCA, AROME, AIFS) zur Szenariobetrachtung
+* Vergleich gegen IEEE 738-Beispiele
+* Gegenüberstellung mit SCADA-Daten (Tc, I, Wind)
+* Sensitivität: ∂I_max/∂v, ∂I_max/∂Ta, ∂I_max/∂GHI
+* Nutzung von INCA, AROME, AIFS für Szenariobewertung
 
 ---
 
-## Referenzen & weiterführende Literatur
+## Referenzen
 
-* **IEEE Std 738-2023**: Standard for Calculating the Current-Temperature Relationship of Bare Overhead Conductors (IEEE Xplore)
-* CIGRÉ TB 601 (2014): *Guide for thermal rating calculations of overhead lines*
-* Karimi, A. et al. (2018). *A review of Dynamic Line Rating systems for overhead lines.* **Renewable and Sustainable Energy Reviews**, 91, 600–619. doi:10.1016/j.rser.2018.04.021
-* US DOE OE (2012): *Dynamic Line Rating Systems for Transmission Lines* (Tech. Report)
-* ENTSO-E (2013+): *Operational Handbook* / *Methodologies for capacity calculation* (DLR-Kontext)
-
-> Einige Quellen sind kostenpflichtig (IEEE/CIGRÉ). Für Open-Access-Übersichten eignen sich Review-Artikel (z. B. Karimi 2018). Für projektspezifische Parametrisierung bitte **Leiterdatenblätter** (Hersteller) heranziehen.
-
-## 🚀 Quickstart (nur GitHub Web-UI)
-
-
-1. **Repo erstellen** (Public).
-2. Alle Dateien aus diesem README anlegen: *Add file → Create new file* (oder Upload).
-3. In `vite.config.ts` die `base` an deinen **Repo-Namen** anpassen (siehe Datei).
-4. Commit auf **main** → GitHub Action baut & deployed automatisch.
-5. **Settings → Pages** → dort steht deine URL, z. B. `https://<USER>.github.io/<REPO>/`.
-
-
-## 🧩 In PowerPoint einbetten
-- *Einfügen → Add-Ins → Web Viewer/LiveWeb*
-- **Seiten-URL** einfügen (siehe GitHub Pages)
-
-
-## 🔧 Entwicklung lokal (optional)
-```bash
-npm install
-npm run dev
-npm run build
+* IEEE Std 738-2023 – Current-Temperature Relationship of Bare Overhead Conductors
+* CIGRÉ TB 601 (2014) – Thermal rating of overhead lines
+* Karimi et al. (2018), *Dynamic Line Rating systems*, Renewable & Sustainable Energy Reviews
+* US DOE OE (2012): Dynamic Line Rating Systems
+* ENTSO-E Operational
