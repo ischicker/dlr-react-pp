@@ -11,56 +11,50 @@ import {
 } from 'lucide-react'
 
 /**
- * Dynamic Line Rating – Alpine Edition (mit Leiterstrom & Wärmebilanz)
+ * Dynamic Line Rating – Alpen Edition (IEEE-like ⇄ CIGRÉ-like)
  *
- * Vereinfachte, anschauliche Wärmebilanz je Meter Leiter:
- *   q_Joule(I, Tc) + q_Solar(GHI)  =  q_Conv(v_eff, Tc-Ta) + q_Rad(Tc, Ta)
+ * Diese Variante erlaubt die Wahl zwischen zwei Wärmebilanz-Varianten:
+ *  - "IEEE-like": Heuristische h_c(v) (vorherige Version)
+ *  - "CIGRÉ-like": Aufteilung Konvektion in natürliche + erzwungene Konvektion mit
+ *                   korrelationsbasierten Exponenten (didaktisch angenähert)
  *
- * q_Joule = I^2 * R(Tc)                                  [W/m]
- *   R(T) = R20 * (1 + alpha*(T-20°C))
- * q_Solar = alpha_solar * GHI * D                         [W/m] (projizierte Fläche/m ≈ D)
- * q_Conv  = h_c(v) * (Tc-Ta) * (π*D)                      [W/m]
- *   h_c(v) ≈ 5 + 8*sqrt(v_eff + 0.1)                      [W/m²K] (grob)
- * q_Rad   = ε * σ * (TcK^4 - TaK^4) * (π*D)               [W/m]
- *
- * Tc wird numerisch iteriert und auf [Ta-5, Tc_max] begrenzt (Tc_max = 80°C).
- * Ampacity I_max: maximaler Strom, sodass Tc(Ta, v_eff, GHI, I_max) = Tc_max.
- *
- * Achtung: Parameter sind didaktisch gewählt, nicht leiterspezifisch kalibriert.
+ *  HINWEIS: Die CIGRÉ-Variante nutzt frei gewählte Koeffizienten in typischer Größenordnung,
+ *  um die Charakteristik der TB601-Korrelationsform einzufangen. Für echte Auslegung sind
+ *  leiter-/oberflächenspezifische, standardkonforme Parameter zu verwenden.
  */
 
+// --- Visual-/UI-Parameter ---
 const T_REF = 25 // °C, Referenz für Sag-Visualisierung
 const SAG_REF_PX = 50 // px bei T_REF
-const SAG_TEMP_COEFF = 0.005 // ~0.5% Sag-Zunahme pro K über T_REF
-const SAG_WIND_LIFT = 0.5 // px Reduktion pro m/s
+const SAG_TEMP_COEFF = 0.005 // ~0.5% Sag-Zunahme pro K über T_REF (visual)
+const SAG_WIND_LIFT = 0.5 // px Reduktion pro m/s (visual)
 const TC_MIN_DELTA = -5 // Tc >= Ta-5
 const TC_MAX = 80 // °C (Betriebsgrenze/Design-Limit)
 
-const GHI_REF = 800 // W/m² (statischer Referenzfall)
-const V_REF = 0.6 // m/s (statischer Referenzfall)
-const T_STATIC_REF = 35 // °C (statischer Referenzfall)
+// --- Statischer Referenzfall für DLR% ---
+const GHI_REF = 800 // W/m²
+const V_REF = 0.6 // m/s
+const T_STATIC_REF = 35 // °C
 
-// Physikalische Konstanten / Heuristik-Parameter (typischer ACSR-Ordnung)
-const SIGMA = 5.670374419e-8 // W/m²/K⁴
-const EPS = 0.8 // Emissivität
-const ALPHA_SOLAR = 0.5 // Absorptivität
-const DIAM = 0.028 // m, Leiterdurchmesser ~ 28 mm
-const PERIM = Math.PI * DIAM // Umfang (Wärmeaustauschfläche pro m)
-const R20_PER_M = 3.0e-5 // Ω/m bei 20°C  (~0.03 Ω/km)
-const ALPHA_R = 0.0039 // 1/K Temperaturkoeff. Widerstand (Alu/ACSR-grob)
+// --- Physikalische Konstanten & Leiterparameter (didaktisch) ---
+const SIGMA = 5.670374419e-8 // W/m²/K⁴ (Stefan-Boltzmann)
+const EPS = 0.8 // Emissivität [-]
+const ALPHA_SOLAR = 0.5 // Absorptivität [-]
+const DIAM = 0.028 // m, Leiternenn-Durchmesser (z.B. ~28 mm)
+const PERIM = Math.PI * DIAM // Wärmeaustausch-Umfang je m
+const R20_PER_M = 3.0e-5 // Ω/m bei 20°C (≈0.03 Ω/km)
+const ALPHA_R = 0.0039 // 1/K Temperaturkoeff. Widerstand
 
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x))
 const C2K = (tC: number) => tC + 273.15
+
+// --- Modellwahl ---
+type ModelType = 'ieee' | 'cigre'
 
 /** effektive Windgeschwindigkeit aus Mittel + Böen */
 function effectiveWindSpeed(vMean: number, vGust: number): number {
   if (vGust <= vMean) return vMean
   return vMean + 0.35 * (vGust - vMean) // 35% Böenanteil
-}
-
-/** h_c(v) [W/m²K] – sehr grobe Heuristik */
-function hConvective(vEff: number): number {
-  return 5 + 8 * Math.sqrt(Math.max(0, vEff) + 0.1)
 }
 
 /** Widerstand bei Tc [Ω/m] */
@@ -76,78 +70,92 @@ function qJoule(I: number, tc: number): number {
 function qSolar(ghi: number): number {
   return ALPHA_SOLAR * ghi * DIAM // projizierte Fläche/m ~ D
 }
-function qConvective(vEff: number, ta: number, tc: number): number {
-  const h = hConvective(vEff)
-  return h * (tc - ta) * PERIM
-}
 function qRadiative(ta: number, tc: number): number {
   const Tk = C2K(tc)
   const Tak = C2K(ta)
   return EPS * SIGMA * (Tk ** 4 - Tak ** 4) * PERIM
 }
 
-/** Tc-Lösung für gegebene (Ta, vEff, GHI, I) via einfache Iteration */
-function solveConductorTemp(ta: number, vEff: number, ghi: number, I: number): number {
-  let tc = clamp(ta + 10, ta + TC_MIN_DELTA, TC_MAX) // initial
+/** IEEE-like: h_c(v) [W/m²K] einfache Heuristik */
+function hConvectiveIEEE(vEff: number): number {
+  return 5 + 8 * Math.sqrt(Math.max(0, vEff) + 0.1)
+}
+function qConvectiveIEEE(vEff: number, ta: number, tc: number): number {
+  const h = hConvectiveIEEE(vEff)
+  return h * (tc - ta) * PERIM
+}
+
+/** CIGRÉ-like: Konvektion als Summe aus natürlicher + erzwungener Komponente
+ *  q_nat  = Cn * (ΔT)^1.25 * D^0.75
+ *  q_for  = Cf * v_eff^m * (ΔT)^n * D^0.75
+ *  q_conv = q_nat + q_for   (didaktische Summation, alternative Wurzel-Überlagerung möglich)
+ *  Koeffizienten sind heuristisch gewählt, um Größenordnungen zu treffen.
+ */
+const CIGRE_CN = 3.6 // ~W/m/K^1.25 * m^-0.75
+const CIGRE_CF = 7.2 // ~W/m/(m/s)^m/K^n * m^-0.75
+const CIGRE_M = 0.52 // Exponent für v_eff
+const CIGRE_N = 1.25 // Exponent für ΔT
+
+function qConvectiveCIGRE(vEff: number, ta: number, tc: number): number {
+  const dT = Math.max(0, tc - ta)
+  const D075 = Math.pow(DIAM, 0.75)
+  const q_nat = CIGRE_CN * Math.pow(dT, CIGRE_N) * D075
+  const q_for = CIGRE_CF * Math.pow(Math.max(0, vEff), CIGRE_M) * Math.pow(dT, CIGRE_N) * D075
+  return q_nat + q_for
+}
+
+/**
+ * Tc-Löser (stationär) für gegebenes Modell und (Ta, vEff, GHI, I)
+ */
+function solveConductorTemp(ta: number, vEff: number, ghi: number, I: number, model: ModelType): number {
+  let tc = clamp(ta + 10, ta + TC_MIN_DELTA, TC_MAX) // initial guess
   for (let k = 0; k < 60; k++) {
     const q_in = qJoule(I, tc) + qSolar(ghi)
-    const q_out = qConvective(vEff, ta, tc) + qRadiative(ta, tc)
-    const resid = q_in - q_out // >0 -> zu warm berechnen
-    // numerischer Dämpfer (W/K*m grob): Steigung der Abkühlung gegenüber Tc
-    const dQdT = hConvective(vEff) * PERIM + 4 * EPS * SIGMA * (C2K(tc) ** 3) * PERIM
-    const step = resid / Math.max(1e-6, dQdT)
+    const q_out_conv = model === 'ieee' ? qConvectiveIEEE(vEff, ta, tc) : qConvectiveCIGRE(vEff, ta, tc)
+    const q_out = q_out_conv + qRadiative(ta, tc)
+    const resid = q_in - q_out
+
+    // numerischer Dämpfer: dQ/dT der Abkühlung
+    const h_eq = model === 'ieee' ? hConvectiveIEEE(vEff) : (qConvectiveCIGRE(vEff, ta, tc + 0.5) - qConvectiveCIGRE(vEff, ta, tc)) / 0.5 / PERIM
+    const dQdT = Math.max(1e-6, h_eq * PERIM + 4 * EPS * SIGMA * Math.pow(C2K(tc), 3) * PERIM)
+    const step = resid / dQdT
     tc = clamp(tc + step, ta + TC_MIN_DELTA, TC_MAX)
-    if (Math.abs(step) < 0.02) break // Konvergenz ~0.02 K
+    if (Math.abs(step) < 0.02) break
   }
   return tc
 }
 
-/** Tc aus Bedingungen und I */
-function estimateConductorTemp(ta: number, ghi: number, vEff: number, I: number): number {
-  return solveConductorTemp(ta, vEff, ghi, I)
+function estimateConductorTemp(ta: number, ghi: number, vEff: number, I: number, model: ModelType): number {
+  return solveConductorTemp(ta, vEff, ghi, I, model)
 }
 
-/** Ampacity: größtes I, sodass Tc = TC_MAX */
-function solveAmpacity(ta: number, ghi: number, vEff: number): number {
-  // einfacher Bisektions-/Sekantenmix
+/** Ampacity: größtes I mit Tc = TC_MAX */
+function solveAmpacity(ta: number, ghi: number, vEff: number, model: ModelType): number {
   let lo = 0
-  let hi = 4000 // A (oberes Suchlimit für Demo)
-  let tc_lo = estimateConductorTemp(ta, ghi, vEff, lo) // ~Ta
-  let tc_hi = estimateConductorTemp(ta, ghi, vEff, hi)
-
-  // Wenn selbst bei 0 A schon nahe Tc_max wegen hoher Strahlung/wenig Wind:
+  let hi = 4000
+  let tc_lo = estimateConductorTemp(ta, ghi, vEff, lo, model)
   if (tc_lo >= TC_MAX - 0.05) return 0
-
-  // Increase hi bis Tc_hi > Tc_max
+  let tc_hi = estimateConductorTemp(ta, ghi, vEff, hi, model)
   let guard = 0
   while (tc_hi < TC_MAX && guard < 10) {
     hi *= 1.5
-    tc_hi = estimateConductorTemp(ta, ghi, vEff, hi)
+    tc_hi = estimateConductorTemp(ta, ghi, vEff, hi, model)
     guard++
   }
-
   for (let k = 0; k < 40; k++) {
     const mid = 0.5 * (lo + hi)
-    const tc_mid = estimateConductorTemp(ta, ghi, vEff, mid)
-    if (tc_mid > TC_MAX) {
-      hi = mid
-    } else {
-      lo = mid
-    }
+    const tc_mid = estimateConductorTemp(ta, ghi, vEff, mid, model)
+    if (tc_mid > TC_MAX) hi = mid; else lo = mid
     if (Math.abs(tc_mid - TC_MAX) < 0.05 || (hi - lo) < 0.5) return mid
   }
   return 0.5 * (lo + hi)
 }
 
-/** Statischer Ampacity-Referenzwert (für DLR%) */
-function staticAmpacityRef(): number {
-  const ta = T_STATIC_REF
-  const v = V_REF
-  const ghi = GHI_REF
-  return solveAmpacity(ta, ghi, v)
+function staticAmpacityRef(model: ModelType): number {
+  return solveAmpacity(T_STATIC_REF, GHI_REF, V_REF, model)
 }
 
-/** Alpine Risiko-Einschätzung (inkl. Stromnähe zu Ampacity) */
+/** Alpine Risiko (inkl. Stromnähe zu Ampacity) */
 function assessRisk(ta: number, vEff: number, tc: number, I: number, Imax: number) {
   if (I >= 0.98 * Imax || tc >= 78) {
     return { level: 'Kritisch', color: 'text-red-600', bg: 'bg-red-100' }
@@ -168,38 +176,30 @@ function iceSnowFlags(ta: number, ghi: number, vEff: number) {
   const icingHigh = ta >= -10 && ta <= 1 && vEff <= 3 && lowRad
   const icingModerate = ta >= -15 && ta <= 2 && vEff <= 5 && veryLowRad
   const snowRisk = ta >= -5 && ta <= 2 && ghi < 200
-  return {
-    icing: icingHigh ? 'hoch' : icingModerate ? 'moderat' : 'gering',
-    snow: snowRisk ? 'möglich' : 'unwahrscheinlich'
-  }
+  return { icing: icingHigh ? 'hoch' : icingModerate ? 'moderat' : 'gering', snow: snowRisk ? 'möglich' : 'unwahrscheinlich' }
 }
 
-/** Sag (px) aus Tc (Visualisierung) */
+/** Sag (px) aus Tc (visual) */
 function estimateSagPx(tc: number, vEff: number): number {
   const sag = SAG_REF_PX * (1 + SAG_TEMP_COEFF * (tc - T_REF)) - SAG_WIND_LIFT * vEff
   return clamp(sag, 30, 120)
 }
 
 const DynamicLineRating: React.FC = () => {
-  // Alpen-gerechte Default-Werte
-  const [temperature, setTemperature] = useState(0) // °C (−20..45)
-  const [windSpeed, setWindSpeed] = useState(2) // m/s
-  const [windGust, setWindGust] = useState(8) // m/s
-  const [ghi, setGhi] = useState(400) // W/m²
-  const [current, setCurrent] = useState(600) // A (Leiterstrom)
+  // Alpen-gerechte Defaults
+  const [temperature, setTemperature] = useState(0)
+  const [windSpeed, setWindSpeed] = useState(2)
+  const [windGust, setWindGust] = useState(8)
+  const [ghi, setGhi] = useState(400)
+  const [current, setCurrent] = useState(600)
+  const [model, setModel] = useState<ModelType>('ieee')
 
   const vEff = useMemo(() => effectiveWindSpeed(windSpeed, windGust), [windSpeed, windGust])
 
-  // Ampacity bei aktuellen Bedingungen (Tc_max)
-  const Imax = useMemo(() => solveAmpacity(temperature, ghi, vEff), [temperature, ghi, vEff])
+  const Imax = useMemo(() => solveAmpacity(temperature, ghi, vEff, model), [temperature, ghi, vEff, model])
+  const I_static = useMemo(() => staticAmpacityRef(model), [model])
+  const Tc = useMemo(() => estimateConductorTemp(temperature, ghi, vEff, current, model), [temperature, ghi, vEff, current, model])
 
-  // Statische Referenz-Ampacity (für DLR%)
-  const I_static = useMemo(() => staticAmpacityRef(), [])
-
-  // aktuelle Leitertemperatur bei gegebenem Strom
-  const Tc = useMemo(() => estimateConductorTemp(temperature, ghi, vEff, current), [temperature, ghi, vEff, current])
-
-  // DLR in % (Ampacity relativ zu statischer Referenz)
   const dlrPercent = useMemo(() => clamp((Imax / Math.max(1e-6, I_static)) * 100, 0, 300), [Imax, I_static])
   const capacityDiff = useMemo(() => (dlrPercent - 100).toFixed(1), [dlrPercent])
 
@@ -211,9 +211,19 @@ const DynamicLineRating: React.FC = () => {
     <div className="w-full max-w-4xl mx-auto p-6 bg-white">
       <div className="mb-6">
         <h2 className="text-2xl font-bold mb-2">Dynamic Line Rating (DLR) – Alpen-Edition</h2>
-        <p className="text-gray-600 text-sm">
-          Wärmebilanz mit Leiterstrom, Böen und Strahlung · Tc_max = {TC_MAX}°C
-        </p>
+        <p className="text-gray-600 text-sm">Wärmebilanz mit Leiterstrom, Böen & Strahlung · Tc_max = {TC_MAX}°C · Modell: <b>{model.toUpperCase()}</b></p>
+      </div>
+
+      {/* Modell-Wahlschalter */}
+      <div className="mb-6 flex flex-wrap items-center gap-4">
+        <label className="inline-flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="model" value="ieee" checked={model === 'ieee'} onChange={() => setModel('ieee')} />
+          <span className="text-sm">IEEE-like</span>
+        </label>
+        <label className="inline-flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="model" value="cigre" checked={model === 'cigre'} onChange={() => setModel('cigre')} />
+          <span className="text-sm">CIGRÉ-like (nat.+erz. Konvektion)</span>
+        </label>
       </div>
 
       {/* Visualisierung */}
@@ -255,28 +265,19 @@ const DynamicLineRating: React.FC = () => {
           </g>
 
           {/* Leiter mit Durchhang */}
-          <path
-            d={`M 54,85 Q 400,${85 + sag} 746,85`}
-            stroke={Tc > 70 && vEff < 1 ? '#ef4444' : '#1e40af'}
-            strokeWidth="4"
-            fill="none"
-          />
+          <path d={`M 54,85 Q 400,${85 + sag} 746,85`} stroke={Tc > 70 && vEff < 1 ? '#ef4444' : '#1e40af'} strokeWidth="4" fill="none" />
 
           {/* Warnblase bei heißem Leiter und wenig Wind */}
           {Tc >= 75 && vEff < 2 && (
             <>
               <circle cx="400" cy={85 + sag} r="20" fill="#fee2e2" opacity={0.8} />
-              <text x="400" y={85 + sag + 5} textAnchor="middle" fontSize="20">
-                ⚠️
-              </text>
+              <text x="400" y={85 + sag + 5} textAnchor="middle" fontSize="20">⚠️</text>
             </>
           )}
 
           {/* Durchhang-Annotation */}
           <line x1="400" y1="85" x2="400" y2={85 + sag} stroke="#999" strokeDasharray="2,2" strokeWidth="1" />
-          <text x="410" y={(85 + (85 + sag)) / 2} fontSize="12" fill="#666">
-            Durchhang: {sag.toFixed(0)} px
-          </text>
+          <text x="410" y={(85 + (85 + sag)) / 2} fontSize="12" fill="#666">Durchhang: {sag.toFixed(0)} px</text>
         </svg>
 
         {/* Schnee/Vereisung Badge */}
@@ -300,14 +301,7 @@ const DynamicLineRating: React.FC = () => {
             <Thermometer className="text-red-500" />
             <label className="font-semibold">Lufttemperatur</label>
           </div>
-          <input
-            type="range"
-            min={-20}
-            max={45}
-            value={temperature}
-            onChange={(e) => setTemperature(Number(e.target.value))}
-            className="w-full"
-          />
+          <input type="range" min={-20} max={45} value={temperature} onChange={(e) => setTemperature(Number(e.target.value))} className="w-full" />
           <div className="flex justify-between text-sm mt-2">
             <span>-20°C</span>
             <span className="font-bold text-lg">{temperature}°C</span>
@@ -321,15 +315,7 @@ const DynamicLineRating: React.FC = () => {
             <Wind className="text-blue-500" />
             <label className="font-semibold">Windgeschwindigkeit (Mittel)</label>
           </div>
-          <input
-            type="range"
-            min={0}
-            max={12}
-            step={0.5}
-            value={windSpeed}
-            onChange={(e) => setWindSpeed(Number(e.target.value))}
-            className="w-full"
-          />
+          <input type="range" min={0} max={12} step={0.5} value={windSpeed} onChange={(e) => setWindSpeed(Number(e.target.value))} className="w-full" />
           <div className="flex justify-between text-sm mt-2">
             <span>0 m/s</span>
             <span className="font-bold text-lg">{windSpeed} m/s</span>
@@ -343,15 +329,7 @@ const DynamicLineRating: React.FC = () => {
             <Gauge className="text-blue-600" />
             <label className="font-semibold">Windböen</label>
           </div>
-          <input
-            type="range"
-            min={0}
-            max={25}
-            step={0.5}
-            value={windGust}
-            onChange={(e) => setWindGust(Number(e.target.value))}
-            className="w-full"
-          />
+          <input type="range" min={0} max={25} step={0.5} value={windGust} onChange={(e) => setWindGust(Number(e.target.value))} className="w-full" />
           <div className="flex justify-between text-sm mt-2">
             <span>0 m/s</span>
             <span className="font-bold text-lg">{windGust} m/s</span>
@@ -365,15 +343,7 @@ const DynamicLineRating: React.FC = () => {
             <SunMedium className="text-yellow-500" />
             <label className="font-semibold">Globalstrahlung (GHI)</label>
           </div>
-          <input
-            type="range"
-            min={0}
-            max={1200}
-            step={10}
-            value={ghi}
-            onChange={(e) => setGhi(Number(e.target.value))}
-            className="w-full"
-          />
+          <input type="range" min={0} max={1200} step={10} value={ghi} onChange={(e) => setGhi(Number(e.target.value))} className="w-full" />
           <div className="flex justify-between text-sm mt-2">
             <span>0</span>
             <span className="font-bold text-lg">{ghi} W/m²</span>
@@ -387,15 +357,7 @@ const DynamicLineRating: React.FC = () => {
             <Zap className="text-blue-700" />
             <label className="font-semibold">Leiterstrom</label>
           </div>
-          <input
-            type="range"
-            min={0}
-            max={1500}
-            step={10}
-            value={current}
-            onChange={(e) => setCurrent(Number(e.target.value))}
-            className="w-full"
-          />
+          <input type="range" min={0} max={1500} step={10} value={current} onChange={(e) => setCurrent(Number(e.target.value))} className="w-full" />
           <div className="flex justify-between text-sm mt-2">
             <span>0 A</span>
             <span className="font-bold text-lg">{current} A</span>
@@ -419,8 +381,7 @@ const DynamicLineRating: React.FC = () => {
           </div>
           <div className="text-3xl font-bold text-blue-700">{Imax.toFixed(0)} A</div>
           <div className={`text-sm mt-1 font-semibold ${dlrPercent >= 100 ? 'text-green-600' : 'text-red-600'}`}>
-            DLR: {dlrPercent.toFixed(0)}%
-            {' '}{dlrPercent - 100 >= 0 ? '(+' : '('}{capacityDiff}%) 
+            DLR: {dlrPercent.toFixed(0)}% {dlrPercent - 100 >= 0 ? '(+' : '('}{(dlrPercent - 100).toFixed(1)}%)
           </div>
           <div className="text-xs text-gray-600 mt-2">
             Tc (bei {current} A) ≈ <span className="font-semibold">{Tc.toFixed(1)}°C</span> (max {TC_MAX}°C)
@@ -444,26 +405,24 @@ const DynamicLineRating: React.FC = () => {
         </h3>
         <div className="text-sm space-y-2">
           <p>
-            <strong>Ampacity (aktuell):</strong> maximal zulässiger Strom, sodass die Leitertemperatur {TC_MAX}°C nicht
-            überschreitet – abhängig von Lufttemp., Wind (inkl. Böen) und Strahlung.
+            <strong>Modellwahl:</strong> <em>IEEE-like</em> nutzt ein einfaches h_c(v), <em>CIGRÉ-like</em> addiert natürliche + erzwungene Konvektion mit typischen Exponenten. Parameter sind didaktisch gesetzt.
           </p>
           <p>
-            <strong>DLR %:</strong> Verhältnis der aktuellen Ampacity zur konservativen Referenz (35 °C, 0.6 m/s,
-            800 W/m²). &gt;100 % bedeutet Gewinn gegenüber statisch.
+            <strong>Ampacity (aktuell):</strong> Maximaler Strom für Tc = {TC_MAX}°C unter den gewählten Bedingungen.
+            DLR% setzt diese Ampacity zur konservativen Referenz in Beziehung.
           </p>
           <p>
-            <strong>Sag:</strong> steigt mit Leitertemperatur (thermische Ausdehnung). Darstellung ist eine
-            Visualisierungs-Näherung.
+            <strong>Sag:</strong> Visualisierung der temperaturbedingten Ausdehnung inkl. kleinen windexponierten Korrekturen.
           </p>
           <p className="text-red-700">
-            <strong>Vereisung/Schnee:</strong> Bei Temperaturen um 0 °C, schwachem Wind und geringer Strahlung möglich –
-            mechanische Risiken & zusätzlicher Durchhang nicht in Ampacity direkt enthalten.
+            <strong>Vereisung/Schnee:</strong> Heuristische Indikatoren (ohne Niederschlag). Mechanische Zusatzlasten sind
+            nicht in der Ampacity enthalten.
           </p>
         </div>
       </div>
 
       <div className="mt-4 text-xs text-gray-500 italic">
-        Didaktische Näherungen inspiriert von IEEE 738; keine leiter- und topologie-spezifische Kalibrierung.
+        Didaktische Näherungen – nicht für den operativen Einsatz ohne leiterspezifische Kalibrierung nach IEEE/CIGRÉ.
       </div>
     </div>
   )
